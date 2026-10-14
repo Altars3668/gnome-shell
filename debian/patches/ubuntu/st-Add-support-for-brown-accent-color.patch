@@ -1,0 +1,87 @@
+From: =?utf-8?b?Ik1hcmNvIFRyZXZpc2FuIChUcmV2acOxbyki?= <mail@3v1n0.net>
+Date: Thu, 15 Aug 2024 07:36:01 -0400
+Subject: st: Add support for brown accent color
+
+---
+ js/ui/main.js             |  2 ++
+ src/st/st-settings.h      |  1 +
+ src/st/st-theme-context.c | 13 +++++++++++++
+ 3 files changed, 16 insertions(+)
+
+diff --git a/js/ui/main.js b/js/ui/main.js
+index 86d101b..37281e8 100644
+--- a/js/ui/main.js
++++ b/js/ui/main.js
+@@ -502,6 +502,8 @@ export function getYaruVariantFromAccent() {
+       return "purple";
+     case St.SystemAccentColor.SLATE:
+       return "sage";
++    case St.SystemAccentColor.BROWN:
++      return "wartybrown";
+   }
+ }
+ 
+diff --git a/src/st/st-settings.h b/src/st/st-settings.h
+index 4c00188..796502a 100644
+--- a/src/st/st-settings.h
++++ b/src/st/st-settings.h
+@@ -44,6 +44,7 @@ typedef enum {
+   ST_SYSTEM_ACCENT_COLOR_PINK = G_DESKTOP_ACCENT_COLOR_PINK,
+   ST_SYSTEM_ACCENT_COLOR_PURPLE = G_DESKTOP_ACCENT_COLOR_PURPLE,
+   ST_SYSTEM_ACCENT_COLOR_SLATE = G_DESKTOP_ACCENT_COLOR_SLATE,
++  ST_SYSTEM_ACCENT_COLOR_BROWN = G_DESKTOP_ACCENT_COLOR_BROWN,
+ } StSystemAccentColor;
+ 
+ #define ST_TYPE_SETTINGS (st_settings_get_type ())
+diff --git a/src/st/st-theme-context.c b/src/st/st-theme-context.c
+index 72c74a2..15afb6b 100644
+--- a/src/st/st-theme-context.c
++++ b/src/st/st-theme-context.c
+@@ -37,6 +37,7 @@
+ #define ACCENT_COLOR_PINK   "#d56199"
+ #define ACCENT_COLOR_PURPLE "#9141ac"
+ #define ACCENT_COLOR_SLATE  "#6f8396"
++#define ACCENT_COLOR_BROWN  "#b39169"
+ 
+ #define ACCENT_FG_COLOR     "#ffffff"
+ 
+@@ -44,6 +45,7 @@
+  * the automated yaru machinery.
+  */
+ #define YARU_ACCENT_COLOR_BLUE_LIGHT "#0070de"
++#define YARU_ACCENT_COLOR_BROWN_LIGHT "#8c6c47"
+ #define YARU_ACCENT_COLOR_GREEN_LIGHT "#488001"
+ #define YARU_ACCENT_COLOR_ORANGE_LIGHT "#cb4314"
+ #define YARU_ACCENT_COLOR_PINK_LIGHT "#ae4aae"
+@@ -57,6 +59,7 @@
+  * the automated yaru machinery.
+  */
+ #define YARU_ACCENT_COLOR_BLUE_DARK "#0073E5"
++#define YARU_ACCENT_COLOR_BROWN_DARK "#92714a"
+ #define YARU_ACCENT_COLOR_GREEN_DARK "#4B8501"
+ #define YARU_ACCENT_COLOR_ORANGE_DARK "#d34615"
+ #define YARU_ACCENT_COLOR_PINK_DARK "#B34CB3"
+@@ -350,6 +353,12 @@ update_accent_colors (StThemeContext *context)
+           cogl_color_from_string (&context->accent_color, color);
+           break;
+ 
++        case ST_SYSTEM_ACCENT_COLOR_BROWN:
++          color = color_scheme == ST_SYSTEM_COLOR_SCHEME_PREFER_DARK ?
++            YARU_ACCENT_COLOR_BROWN_DARK : YARU_ACCENT_COLOR_BROWN_LIGHT;
++          cogl_color_from_string (&context->accent_color, color);
++          break;
++
+         default:
+           g_assert_not_reached ();
+         }
+@@ -397,6 +406,10 @@ update_accent_colors (StThemeContext *context)
+       cogl_color_from_string (&context->accent_color, ACCENT_COLOR_SLATE);
+       break;
+ 
++    case ST_SYSTEM_ACCENT_COLOR_BROWN:
++      cogl_color_from_string (&context->accent_color, ACCENT_COLOR_BROWN);
++      break;
++
+     default:
+       g_warning ("Unsupported accent color: %d", accent_color);
+       cogl_color_from_string (&context->accent_color, ACCENT_COLOR_BLUE);

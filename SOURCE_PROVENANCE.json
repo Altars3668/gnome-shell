@@ -1,0 +1,11 @@
+{
+  "component": "gnome-shell",
+  "source_package": "gnome-shell",
+  "base_version": "50.1-0ubuntu1.2+altarscn1",
+  "upstream_archive": "gnome-shell_50.1.orig.tar.xz",
+  "upstream_sha256": "1b47760172c14f3f4edd1c9aff365f4de45583517bf0f80df4d3acbd4e4cb294",
+  "downstream_commit": null,
+  "import_date": "2026-10-14",
+  "model": "quilt",
+  "note": "首次公开导入为源码快照；不包含私有历史、运行凭据或构建产物。"
+}

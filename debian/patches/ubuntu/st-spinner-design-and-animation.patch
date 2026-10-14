@@ -1,0 +1,207 @@
+From: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Date: Tue, 8 Jul 2025 05:37:21 +0200
+Subject: Align StSpinnerContent Design and Animation to
+ YaruCircularProgressIndicator
+
+Forwarded: no, ubuntu only.
+Bug-Ubuntu: https://bugs.launchpad.net/bugs/2114899
+Last-Update: 2025-06-28
+---
+ src/st/st-spinner-content.c | 138 +++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 137 insertions(+), 1 deletion(-)
+
+diff --git a/src/st/st-spinner-content.c b/src/st/st-spinner-content.c
+index 810e654..0c40a82 100644
+--- a/src/st/st-spinner-content.c
++++ b/src/st/st-spinner-content.c
+@@ -20,7 +20,9 @@
+ #include <cairo.h>
+ 
+ #include <st-widget.h>
++#include <st-settings.h>
+ 
++/* Upstream Definitions */
+ #define MIN_RADIUS 8
+ #define NAT_RADIUS 48
+ #define SMALL_WIDTH 2.5
+@@ -39,6 +41,34 @@
+  * where k is an integer */
+ #define N_CYCLES 53
+ 
++/* Yaru Definitions */
++/*
++ * AdwSpinnerPaintable's MAX_RADIUS has similar function to NAT_RADIUS
++ * but NAT_RADIUS = 48 while MAX_RADIUS = 32.
++ * to calculate new LARGE_WIDTH, we apply LERP
++ * where t = (NAT_RADIUS - 8) / (MAX_RADIUS - 8) = 1.67
++ * AdwSpinnerPaintable's LARGE_WIDTH = 6
++ * new LARGE_WIDTH = LERP (2, 6, 1.67) = 8.67
++ */
++#define YARU_LARGE_WIDTH 8.67
++#define YARU_SMALL_WIDTH 2
++#define YARU_START_ANGLE (-G_PI * 0.5)
++#define YARU_SEGMENT_ANGLE (2 * G_PI / 3) /* 120 degress per segment */
++#define YARU_SPIN_DURATION_MS 8000
++#define YARU_N_CYCLES 6
++
++/*
++ * AdwSpinnerPaintable UPPER_MIN_GAP_ANGLE = 0.2 at MAX_RADIUS = 32
++ * LOWER_MIN_GAP_ANGLE =  0.1 at MIN_RADIUS = 8.
++ * note: MAX_RADIUS != NAT_RADIUS.
++ * to calculate the new UPPER_MIN_GAP_ANGLE, we apply LERP
++ * where t = (NAT_RADIUS - 8) / (MAX_RADIUS - 8) = 1.67
++ * new UPPER_MIN_GAP_ANGLE = LERP (0.1, 0.2, 1.67) = 0.267
++ */
++#define UPPER_MIN_GAP_ANGLE 0.267
++#define LOWER_MIN_GAP_ANGLE 0.1
++#define MAX_GAP_ANGLE 0.5
++
+ /**
+  * StSpinnerContent:
+  *
+@@ -62,6 +92,7 @@ struct _StSpinnerContent
+ 
+   CoglTexture *texture;
+   gboolean dirty;
++  gboolean yaru_mode;
+ 
+   CoglBitmap *buffer;
+ };
+@@ -72,9 +103,26 @@ G_DEFINE_FINAL_TYPE_WITH_CODE (StSpinnerContent, st_spinner_content, G_TYPE_OBJE
+                                G_IMPLEMENT_INTERFACE (CLUTTER_TYPE_CONTENT,
+                                                       st_spinner_content_iface_init))
+ 
++static void
++update_yaru_mode (StSpinnerContent *spinner,
++                      StSettings       *settings)
++{
++  g_autofree char *gtk_theme = NULL;
++
++  g_object_get (settings, "gtk-theme", &gtk_theme, NULL);
++
++  spinner->yaru_mode = g_strcmp0 (gtk_theme, "Yaru") == 0;
++}
++
+ static void
+ st_spinner_content_init (StSpinnerContent *spinner)
+ {
++  StSettings *settings = st_settings_get ();
++
++  update_yaru_mode (spinner, settings);
++  g_signal_connect_object (settings, "notify::gtk-theme",
++                           G_CALLBACK (update_yaru_mode),
++                           spinner, G_CONNECT_SWAPPED);
+ }
+ 
+ static void
+@@ -145,6 +193,12 @@ st_spinner_content_set_actor (StSpinnerContent *spinner,
+       clutter_timeline_set_repeat_count (spinner->timeline, -1);
+       clutter_timeline_set_progress_mode (spinner->timeline, CLUTTER_LINEAR);
+ 
++      if (spinner->yaru_mode)
++        {
++          clutter_timeline_set_progress_mode (spinner->timeline, CLUTTER_EASE_IN_OUT_SINE);
++          clutter_timeline_set_duration (spinner->timeline, YARU_SPIN_DURATION_MS);
++        }
++
+       g_signal_connect_object (spinner->timeline, "new-frame", G_CALLBACK (new_frame_cb), spinner, 0);
+ 
+       if (clutter_actor_is_mapped (actor))
+@@ -329,6 +383,85 @@ st_spinner_content_draw_spinner (StSpinnerContent *spinner,
+   cairo_restore (cr);
+ }
+ 
++static void
++st_spinner_content_draw_yaru_spinner (StSpinnerContent *spinner,
++                                      cairo_t          *cr,
++                                      int               width,
++                                      int               height)
++{
++  CoglColor color;
++  double radius, radius_t, line_width;
++  double progress, start_angle, end_angle;
++  float gap_angle, min_gap_angle, gap_angle_t_actual, gap_angle_t;
++  uint8_t segment_counter;
++
++  g_assert (spinner->actor);
++
++  if (ST_IS_WIDGET (spinner->actor))
++    {
++      StThemeNode *theme_node = st_widget_get_theme_node (ST_WIDGET (spinner->actor));
++      st_theme_node_get_foreground_color (theme_node, &color);
++    }
++  else
++    {
++      cogl_color_init_from_4f (&color, 0., 0., 0., 1.);
++    }
++
++  radius = MIN (floorf (MIN (width, height) / 2), NAT_RADIUS);
++  radius_t = INVERSE_LERP (MIN_RADIUS, NAT_RADIUS, radius);
++  line_width = LERP (YARU_SMALL_WIDTH, YARU_LARGE_WIDTH,
++                     INVERSE_LERP (MIN_RADIUS, NAT_RADIUS, radius));
++  radius -= roundf (line_width / 2.);
++
++  if (radius < 0)
++    return;
++
++  cairo_translate (cr, roundf (width / 2), roundf(height / 2));
++  cairo_set_line_width (cr, line_width);
++
++  /* Moving part */
++
++  segment_counter = 0;
++
++  if (spinner->timeline)
++    progress = clutter_timeline_get_progress (spinner->timeline) * YARU_N_CYCLES * M_PI * 2;
++  else
++    progress = START_ANGLE;
++
++
++  min_gap_angle = LERP (UPPER_MIN_GAP_ANGLE, LOWER_MIN_GAP_ANGLE, radius_t);
++  gap_angle_t_actual = INVERSE_LERP (0, 2 * M_PI * YARU_N_CYCLES, progress);
++  /* pinpong behavior: 0->1 is transformed to 0->1->0 */
++  gap_angle_t = 1 - fabs (2 * gap_angle_t_actual - 1);
++  gap_angle = LERP (min_gap_angle, MAX_GAP_ANGLE, gap_angle_t);
++
++  end_angle = progress + START_ANGLE - YARU_SEGMENT_ANGLE;
++  start_angle = progress + START_ANGLE - gap_angle;
++
++  do {
++    cairo_save (cr);
++
++    start_angle = normalize_angle (start_angle);
++    end_angle = normalize_angle (end_angle);
++
++    cairo_set_line_cap (cr, CAIRO_LINE_CAP_BUTT);
++    cairo_set_source_rgba (cr,
++                           color.red / 255.,
++                           color.green / 255.,
++                           color.blue / 255.,
++                           color.alpha / 255.);
++
++    cairo_arc (cr, 0, 0, radius, end_angle, start_angle);
++    cairo_stroke (cr);
++
++    segment_counter++;
++    start_angle += YARU_SEGMENT_ANGLE;
++    end_angle += YARU_SEGMENT_ANGLE;
++
++    cairo_restore (cr);
++  } while (segment_counter < 3);
++}
++
+ static void
+ st_spinner_content_redraw (StSpinnerContent *spinner)
+ {
+@@ -412,7 +545,10 @@ st_spinner_content_redraw (StSpinnerContent *spinner)
+   cairo_paint (cr);
+   cairo_restore (cr);
+ 
+-  st_spinner_content_draw_spinner (spinner, cr, width, height);
++  if (G_LIKELY (spinner->yaru_mode))
++    st_spinner_content_draw_yaru_spinner (spinner, cr, width, height);
++  else
++    st_spinner_content_draw_spinner (spinner, cr, width, height);
+ 
+   cairo_destroy (cr);
+ 
